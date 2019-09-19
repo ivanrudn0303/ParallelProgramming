@@ -15,8 +15,8 @@ namespace LockFree
     public:
         Queue(size_t aSize): m_Size(aSize), m_Data(new T[aSize]), m_First(0), m_Last(0) {}
         ~Queue();
-        void Push(const T& aValue);
-        void Pop(T& aDest);
+        bool Push(const T& aValue);
+        bool Pop(T& aDest);
     };
 
     template<typename T>
@@ -26,33 +26,27 @@ namespace LockFree
     }
 
     template<typename T>
-    void Queue<T>::Pop(T& aDest)
+    bool Queue<T>::Pop(T& aDest)
     {
-        while (true)
+        atomic_noexcept
         {
-            atomic_noexcept
-            {
-                if (m_Last == m_First)
-                    continue;
-                aDest = m_Data[m_First % m_Size];
-                m_Data[m_First++ % m_Size].~T();
-                return;
-            }
+            if (m_Last == m_First)
+                return false;
+            aDest = m_Data[m_First % m_Size];
+            m_Data[m_First++ % m_Size].~T();
+            return true;
         }
     }
 
     template<typename T>
-    void Queue<T>::Push(const T& aValue)
+    bool Queue<T>::Push(const T& aValue)
     {
-        while (true)
+        atomic_noexcept
         {
-            atomic_noexcept
-            {
-                if (m_Last == m_First + m_Size)
-                    continue;
-                m_Data[m_Last++ % m_Size] = aValue;
-                return;
-            }
+            if (m_Last == m_First + m_Size)
+                return false;
+            m_Data[m_Last++ % m_Size] = aValue;
+            return true;
         }
     }
 } //LockFree

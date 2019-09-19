@@ -1,6 +1,7 @@
 #include "ThreadPool.h"
 
 
+
 static void ExitForStopAll(void*)
 {
     return;
@@ -69,4 +70,46 @@ void LockFree::ThreadPoolSync::Do(TaskType aTask, void* aArgs)
     TaskType sTmp = nullptr;
     sIdle->Args = aArgs;
     std::atomic_compare_exchange_weak(&sIdle->Caller, &sTmp, aTask);
+}
+
+
+LockFree::ThreadPoolAsync::ThreadPoolAsync(size_t aThreads): m_Threads(aThreads), m_Stop(false), m_Tasks(aThreads)
+{
+    sem_init(&m_Lock, 0, 0);
+    for (auto& sThr: m_Threads)
+        sThr= std::thread([this]
+            {
+                std::pair<TaskType, void*> sTask;
+                while (!m_Stop.load())
+                {
+                    sem_wait(&m_Lock);
+                    m_Tasks.Pop(sTask);
+                    sTask.first(sTask.second);
+                }
+            });
+}
+
+LockFree::ThreadPoolAsync::~ThreadPoolAsync()
+{
+    StopAll();
+    for (auto& sThr: m_Threads)
+        sThr.join();
+    sem_destroy(&m_Lock);
+}
+
+void LockFree::ThreadPoolAsync::StopAll()
+{
+    m_Stop.store(true);
+    while (m_Tasks.Push(std::make_pair(ExitForStopAll, nullptr)))
+        sem_post(&m_Lock);
+}
+
+bool LockFree::ThreadPoolAsync::Do(TaskType aTask, void* aArgs)
+{
+    if (m_Stop.load())
+        return false;
+    if (!m_Tasks.Push(std::make_pair(aTask, aArgs)))
+        return false;
+    sem_post(&m_Lock);
+    return true;
 }

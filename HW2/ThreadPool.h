@@ -1,24 +1,34 @@
 #pragma once
 
+#include "Queue.h"
+
 #include <atomic>
+#include <condition_variable>
 #include <cstdio>
-#include <functional>
+#include <mutex>
+#include <semaphore.h>
 #include <thread>
+#include <utility>
 #include <vector>
 
 
 namespace LockFree
 {
-//    class ThreadPool
-//    {
-//        using TaskType = std::function<void()>;
-//        std::vector<std::thread> m_Threads;
-//        Queue<TaskType> m_Tasks;
-//    public:
-//        ThreadPool(size_t aThreads);
-//        ~ThreadPool();
-//        void Do(const TaskType& aTask);
-//    };
+    class ThreadPoolAsync
+    {
+        using TaskType = void (*)(void*);
+
+        sem_t m_Lock;
+        std::vector<std::thread> m_Threads;
+        Queue<std::pair<TaskType, void*>> m_Tasks;
+        std::atomic<bool> m_Stop;
+
+        void StopAll();
+    public:
+        ThreadPoolAsync(size_t aThreads);
+        ~ThreadPoolAsync();
+        bool Do(TaskType aTask, void* aArgs);
+    };
 
     class ThreadPoolSync
     {

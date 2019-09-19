@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <condition_variable>
+#include <chrono>
 #include <ctime>
 #include <iostream>
 #include <mutex>
@@ -15,23 +16,12 @@ std::condition_variable c;
 
 struct Input
 {
-    LockFree::ThreadPoolSync& Pool;
+    LockFree::ThreadPoolAsync& Pool;
     size_t Threads;
     std::vector<size_t>::iterator First;
     std::vector<size_t>::iterator Last;
     std::atomic<bool>* Done;
 };
-
-size_t Stride(size_t aSize, size_t aParts, size_t aIdx)
-{
-    if (aIdx > aSize % aParts)
-    {
-        size_t sRes = (aSize % aParts) * (aSize / aParts + 1);
-        return sRes + (aIdx - aSize % aParts) * (aSize / aParts);
-    }
-    else
-        return aIdx * (aSize / aParts + 1);
-}
 
 void Sorter(void* aParams)
 {
@@ -45,39 +35,44 @@ void Sorter(void* aParams)
             std::atomic<bool> sReady1(false);
             Input sFirst = {sArgs->Pool, sArgs->Threads / 2, sArgs->First, sMiddle, &sReady0};
             Input sSecond = {sArgs->Pool, sArgs->Threads - sArgs->Threads / 2, sMiddle, sArgs->Last, &sReady1};
-            sArgs->Pool.Do(Sorter, &sFirst);
-            sArgs->Pool.Do(Sorter, &sSecond);
+            if (sArgs->Pool.Do(Sorter, &sFirst))
             {
-                std::unique_lock<std::mutex> lk(m);;
-                c.wait(lk, [&sReady0, &sReady1]{return sReady0 && sReady1;});
+                std::cout << "run thread" << std::endl;
+                Sorter(&sSecond);
+                {
+                    std::unique_lock<std::mutex> lk(m);
+                    c.wait(lk, [&sReady0]{return sReady0.load();});
+                }
+                std::inplace_merge(sArgs->First, sMiddle, sArgs->Last);
             }
-            std::inplace_merge(sArgs->First, sMiddle, sArgs->Last);
+            else
+                std::sort(sArgs->First, sArgs->Last);
         }
         else
             std::sort(sArgs->First, sArgs->Last);
     }
     sArgs->Done->store(true);
-    c.notify_all();
+    c.notify_one();
 }
 
 int main(int argc, char* argv[])
 {
     size_t sThreads = std::stoul(argv[1], nullptr, 0);
     std::vector<size_t> sArray;
-    std::vector<bool> sFlags(2 * sThreads, false);
 
     for (std::string line; std::getline(std::cin, line);) {
         sArray.push_back(std::stoul(line, nullptr, 0));
     }
 
-    LockFree::ThreadPoolSync sPool(sThreads);
+    LockFree::ThreadPoolAsync sPool(sThreads);
     std::atomic<bool> sReady(false);
     Input sParams = {sPool, sThreads, sArray.begin(), sArray.end(), &sReady};
     std::chrono::high_resolution_clock sClock;
     auto sStart = sClock.now();
+    std::cout << "run thread" << std::endl;
     Sorter(&sParams);
-//    for (const auto& el: sArray)
-//        std::cout << el << std::endl;
+    //for (const auto& el: sArray)
+    //    std::cout << el << std::endl;
     auto sStop = sClock.now();
     std::cout << std::chrono::duration_cast<std::chrono::microseconds>(sStop - sStart).count() << std::endl;
     return 0;
